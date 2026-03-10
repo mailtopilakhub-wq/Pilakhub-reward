@@ -3,7 +3,7 @@ const admin = require("firebase-admin");
 
 const app = express();
 
-// Load Firebase credentials from environment variable
+// Load Firebase service account from environment variable
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -13,9 +13,9 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Health check route
+// Test route
 app.get("/", (req, res) => {
-  res.send("PilakHub reward server OK");
+  res.send("PilakHub reward server running");
 });
 
 // Cron endpoint
@@ -27,13 +27,13 @@ app.get("/checkRewards", async (req, res) => {
     const users = snapshot.val();
 
     if (!users) {
-      return res.send("OK");
+      return res.send("Notifications sent: 0");
     }
 
     const now = Date.now();
     const rewardDelay = 2 * 60 * 60 * 1000; // 2 hours
 
-    let sent = 0;
+    let sentCount = 0;
 
     for (const uid in users) {
 
@@ -51,33 +51,33 @@ app.get("/checkRewards", async (req, res) => {
             token: user.fcm_token,
             notification: {
               title: "🎁 Daily Gift Available!",
-              body: `Hi ${user.name}, your lucky giftbox is ready!`
+              body: `Hi ${user.name}, your lucky giftbox is ready! Claim your P-Coins now.`
             },
             data: {
               screen: "wallet"
             }
           });
 
-          sent++;
+          sentCount++;
 
           await db.ref(`users/${uid}`).update({
             reward_notified: true
           });
 
         } catch (err) {
-          // silent error to keep response small
+          console.log("FCM Error:", err);
         }
 
       }
 
     }
 
-    // very small response
-    res.send("OK");
+    res.send(`Notifications sent: ${sentCount}`);
 
   } catch (error) {
 
-    res.send("OK");
+    console.log(error);
+    res.status(500).send("Server error");
 
   }
 
@@ -87,5 +87,5 @@ app.get("/checkRewards", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("Server started");
+  console.log("Server running on port " + PORT);
 });
