@@ -3,7 +3,7 @@ const admin = require("firebase-admin");
 
 const app = express();
 
-/* Load Firebase Service Account from ENV */
+// Load Firebase credentials from environment variable
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -13,12 +13,12 @@ admin.initializeApp({
 
 const db = admin.database();
 
-/* Test route */
+// Health check route
 app.get("/", (req, res) => {
-  res.send("PilakHub notification server running");
+  res.send("PilakHub reward server OK");
 });
 
-/* Cron reward checker */
+// Cron endpoint
 app.get("/checkRewards", async (req, res) => {
 
   try {
@@ -27,13 +27,13 @@ app.get("/checkRewards", async (req, res) => {
     const users = snapshot.val();
 
     if (!users) {
-      return res.send("No users");
+      return res.send("OK");
     }
 
     const now = Date.now();
     const rewardDelay = 2 * 60 * 60 * 1000; // 2 hours
 
-    let sentCount = 0;
+    let sent = 0;
 
     for (const uid in users) {
 
@@ -51,43 +51,41 @@ app.get("/checkRewards", async (req, res) => {
             token: user.fcm_token,
             notification: {
               title: "🎁 Daily Gift Available!",
-              body: `Hi ${user.name}, your lucky giftbox is ready! Claim now.`
+              body: `Hi ${user.name}, your lucky giftbox is ready!`
             },
             data: {
               screen: "wallet"
             }
           });
 
-          sentCount++;
+          sent++;
 
           await db.ref(`users/${uid}`).update({
             reward_notified: true
           });
 
         } catch (err) {
-
-          console.log("FCM Error:", err);
-
+          // silent error to keep response small
         }
 
       }
 
     }
 
-    res.send("Notifications sent: " + sentCount);
+    // very small response
+    res.send("OK");
 
   } catch (error) {
 
-    console.log(error);
-    res.status(500).send("Server error");
+    res.send("OK");
 
   }
 
 });
 
-/* Start server */
+// Start server
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+  console.log("Server started");
 });
