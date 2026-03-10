@@ -3,7 +3,7 @@ const admin = require("firebase-admin");
 
 const app = express();
 
-/* Load Firebase Service Account from Render ENV */
+/* Load Firebase Service Account from ENV */
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -15,10 +15,10 @@ const db = admin.database();
 
 /* Test route */
 app.get("/", (req, res) => {
-  res.send("PilakHub reward notification server running");
+  res.send("PilakHub notification server running");
 });
 
-/* Reward check route */
+/* Cron reward checker */
 app.get("/checkRewards", async (req, res) => {
 
   try {
@@ -27,11 +27,13 @@ app.get("/checkRewards", async (req, res) => {
     const users = snapshot.val();
 
     if (!users) {
-      return res.send("No users found");
+      return res.send("No users");
     }
 
     const now = Date.now();
     const rewardDelay = 2 * 60 * 60 * 1000; // 2 hours
+
+    let sentCount = 0;
 
     for (const uid in users) {
 
@@ -39,13 +41,9 @@ app.get("/checkRewards", async (req, res) => {
 
       if (!user.last_gift_claim) continue;
       if (!user.fcm_token) continue;
-
-      const lastClaim = user.last_gift_claim;
-
-      /* Prevent duplicate notifications */
       if (user.reward_notified === true) continue;
 
-      if (now - lastClaim >= rewardDelay) {
+      if (now - user.last_gift_claim >= rewardDelay) {
 
         try {
 
@@ -53,16 +51,15 @@ app.get("/checkRewards", async (req, res) => {
             token: user.fcm_token,
             notification: {
               title: "🎁 Daily Gift Available!",
-              body: `Hi ${user.name}, your lucky giftbox is ready! Claim your P-Coins now.`
+              body: `Hi ${user.name}, your lucky giftbox is ready! Claim now.`
             },
             data: {
               screen: "wallet"
             }
           });
 
-          console.log("Notification sent to:", user.name);
+          sentCount++;
 
-          /* Mark notification sent */
           await db.ref(`users/${uid}`).update({
             reward_notified: true
           });
@@ -77,7 +74,7 @@ app.get("/checkRewards", async (req, res) => {
 
     }
 
-    res.send("Reward check completed");
+    res.send("Notifications sent: " + sentCount);
 
   } catch (error) {
 
@@ -92,5 +89,5 @@ app.get("/checkRewards", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("Server running on port " + PORT);
 });
