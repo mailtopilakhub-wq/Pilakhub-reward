@@ -1,6 +1,9 @@
 const express = require("express");
 const admin = require("firebase-admin");
 
+const app = express();
+
+/* Load Firebase Service Account from Render ENV */
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -9,52 +12,85 @@ admin.initializeApp({
 });
 
 const db = admin.database();
-const app = express();
 
-app.get("/", (req,res)=>{
-  res.send("PilakHub Notification Server Running");
+/* Test route */
+app.get("/", (req, res) => {
+  res.send("PilakHub reward notification server running");
 });
 
-app.get("/checkRewards", async (req,res)=>{
+/* Reward check route */
+app.get("/checkRewards", async (req, res) => {
 
-  const snapshot = await db.ref("users").once("value");
-  const users = snapshot.val();
+  try {
 
-  const now = Date.now();
-  const rewardDelay = 2 * 60 * 60 * 1000;
+    const snapshot = await db.ref("users").once("value");
+    const users = snapshot.val();
 
-  for(const uid in users){
+    if (!users) {
+      return res.send("No users found");
+    }
 
-    const user = users[uid];
+    const now = Date.now();
+    const rewardDelay = 2 * 60 * 60 * 1000; // 2 hours
 
-    if(!user.last_gift_claim || !user.fcm_token) continue;
+    for (const uid in users) {
 
-    if(now - user.last_gift_claim >= rewardDelay){
+      const user = users[uid];
 
-      try{
+      if (!user.last_gift_claim) continue;
+      if (!user.fcm_token) continue;
 
-        await admin.messaging().send({
-          notification:{
-            title:"🎁 Reward Available",
-            body:`${user.name}, your reward is ready!`
-          },
-          token:user.fcm_token
-        });
+      const lastClaim = user.last_gift_claim;
 
-      }catch(err){
-        console.log(err);
+      /* Prevent duplicate notifications */
+      if (user.reward_notified === true) continue;
+
+      if (now - lastClaim >= rewardDelay) {
+
+        try {
+
+          await admin.messaging().send({
+            token: user.fcm_token,
+            notification: {
+              title: "🎁 Daily Gift Available!",
+              body: `Hi ${user.name}, your lucky giftbox is ready! Claim your P-Coins now.`
+            },
+            data: {
+              screen: "wallet"
+            }
+          });
+
+          console.log("Notification sent to:", user.name);
+
+          /* Mark notification sent */
+          await db.ref(`users/${uid}`).update({
+            reward_notified: true
+          });
+
+        } catch (err) {
+
+          console.log("FCM Error:", err);
+
+        }
+
       }
 
     }
 
-  }
+    res.send("Reward check completed");
 
-  res.send("Reward check complete");
+  } catch (error) {
+
+    console.log(error);
+    res.status(500).send("Server error");
+
+  }
 
 });
 
+/* Start server */
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT,()=>{
-  console.log("Server running");
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
 });
