@@ -1,29 +1,25 @@
 const admin = require('firebase-admin');
-const serviceAccount = require('../service_account.json');
 
+// We use an environment variable instead of a file
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
+    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
   });
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
   const { token, title, message, type } = req.body;
 
-  const payload = {
-    token: token,
-    notification: { title, body: message },
-    data: { type: type || 'payment', screen: 'wallet' }
-  };
-
   try {
-    const response = await admin.messaging().send(payload);
-    return res.status(200).json({ success: true, response });
+    await admin.messaging().send({
+      token,
+      notification: { title, body: message },
+      data: { type: type || 'payment' }
+    });
+    res.status(200).json({ success: true });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ error: error.message });
   }
 }
