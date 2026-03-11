@@ -2,24 +2,24 @@ const express = require("express");
 const admin = require("firebase-admin");
 const bodyParser = require('body-parser');
 
-const app = express();app.use(bodyParser.json());
+const app = express();
+app.use(bodyParser.json());
 
 // Load Firebase service account from environment variable
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://pilakhub-default-rtdb.firebaseio.com" // Ensure this matches your DB URL
+  databaseURL: "https://pilakhub-default-rtdb.firebaseio.com"
 });
 
 const db = admin.database();
 
-// 1. Root Test Route
 app.get("/", (req, res) => {
   res.send("PilakHub Reward Server is Online");
 });
 
-// 2. Manual Payment Notification (Called by Android App)
+// Manual Payment Notification
 app.post('/send-notification', async (req, res) => {
   const { token, title, message, type } = req.body;
   if (!token) return res.status(400).json({ error: 'Token is required' });
@@ -36,7 +36,7 @@ app.post('/send-notification', async (req, res) => {
   }
 });
 
-// 3. Cron Job Endpoint (Check for available rewards every 2 hours)
+// Cron Job Endpoint
 app.get("/checkRewards", async (req, res) => {
   try {
     const snapshot = await db.ref("users").once("value");
@@ -50,29 +50,50 @@ app.get("/checkRewards", async (req, res) => {
 
     for (const uid in users) {
       const user = users[uid];
-      if (!user.fcm_token || !user.last_gift_claim) continue;
-      if (user.reward_notified === true) continue;
+      if (!user.fcm_token) continue;
 
-      // Check daily limit (2.0 P-Coins)
-      const dailySum = (user.last_sum_update < todayStart) ? 0 : (user.daily_reward_sum || 0);
-      if (dailySum >= 2.0) continue; 
-
-      // Check if 2 hours have passed
-      if (now - user.last_gift_claim >= rewardDelay) {
+      // CASE 1: User has never claimed a gift AND has never been notified
+      if (!user.last_gift_claim && user.reward_notified === undefined) {
         try {
           await admin.messaging().send({
             token: user.fcm_token,
             notification: {
-              title: "🎁 Lucky Giftbox Ready!",
-              body: `Hi ${user.name || 'User'}, your giftbox is ready to open. Claim your P-Coins now!`
+              title: "🎁 Start Earning P-Coins!",
+              body: `Hi ${user.name || 'User'}, open the app and register your wallet to start claiming lucky gifts!`
             },
-            data: { type: "reward", screen: "wallet" }
+            data: { type: "registration", screen: "wallet" }
           });
-
           sentCount++;
+          // Set notified to true so they don't get this message every hour
           await db.ref(`users/${uid}`).update({ reward_notified: true });
         } catch (err) {
-          console.error(`FCM Error for ${uid}:`, err.message);
+          console.error(`FCM Error (New User) ${uid}:`, err.message);
+        }
+        continue;
+      }
+
+      // CASE 2: Existing user waiting for next reward
+      if (user.last_gift_claim && user.reward_notified === false) {
+        // Check daily limit (2.0 P-Coins)
+        const dailySum = (user.last_sum_update < todayStart) ? 0 : (user.daily_reward_sum || 0);
+        if (dailySum >= 2.0) continue; 
+
+        // Check if 2 hours passed
+        if (now - user.last_gift_claim >= rewardDelay) {
+          try {
+            await admin.messaging().send({
+              token: user.fcm_token,
+              notification: {
+                title: "🎁 Lucky Giftbox Ready!",
+                body: `Hi ${user.name || 'User'}, your giftbox is ready! Claim your P-Coins now.`
+              },
+              data: { type: "reward", screen: "wallet" }
+            });
+            sentCount++;
+            await db.ref(`users/${uid}`).update({ reward_notified: true });
+          } catch (err) {
+            console.error(`FCM Error (Reward) ${uid}:`, err.message);
+          }
         }
       }
     }
