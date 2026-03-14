@@ -1,0 +1,8 @@
+{
+  "name": "pilakhub-cron",
+  "version": "1.0.0",
+  "description": "PilakHub Firebase cron system",
+  "scripts": {
+    "start": "php -S 0.0.0.0:$PORT"
+  }
+}
