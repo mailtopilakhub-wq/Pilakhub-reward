@@ -110,7 +110,7 @@ app.get("/cartReminder", async (req,res)=>{
           token:user.fcm_token,
           notification:{
             title:"PilakHub Cart Reminder",
-            body:message
+            message:message
           },
           data:{
             type:"cart_reminder",
