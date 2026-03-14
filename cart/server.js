@@ -3,7 +3,6 @@ const admin = require("firebase-admin");
 
 const app = express();
 
-/* Firebase service account from Render ENV */
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -14,12 +13,9 @@ admin.initializeApp({
 const db = admin.database();
 
 const FREE_DELIVERY = 500;
-const REMINDER_DELAY = 2 * 60 * 60 * 1000; // 2 hours
-
-/* Cart reminder templates */
+const REMINDER_DELAY = 2 * 60 * 60 * 1000;
 
 const cartTemplates = [
-
 "🛒 Items worth ₹{cart} are waiting in your cart.",
 "🚚 Add ₹{remaining} more to unlock FREE delivery.",
 "Great picks! Your cart total is ₹{cart}.",
@@ -30,35 +26,27 @@ const cartTemplates = [
 "Don't miss out! ₹{cart} items still in cart.",
 "Checkout now! Your cart total is ₹{cart}.",
 "Add ₹{remaining} more to get free delivery."
-
 ];
 
-/* Empty cart templates */
-
 const emptyCartTemplates = [
-
 "🛍️ It's time to fill your cart with awesome products we have!",
 "Discover amazing deals today. Start filling your cart now!",
 "Your next favorite product is waiting. Add items to your cart.",
 "Browse PilakHub and add something exciting to your cart!",
 "🔥 Trending products are waiting for you. Start shopping!"
-
 ];
-
-/* Home route */
 
 app.get("/", (req,res)=>{
   res.send("PilakHub cart reminder server running");
 });
-
-
-/* Cron endpoint */
 
 app.get("/cartReminder", async (req,res)=>{
 
   let success = 0;
   let failed = 0;
   let skipped = 0;
+
+  const logs = [];
 
   try{
 
@@ -74,20 +62,17 @@ app.get("/cartReminder", async (req,res)=>{
 
       if(!user.fcm_token){
         skipped++;
+        logs.push(`SKIP ${uid} → no fcm_token`);
         continue;
       }
 
-      let message = "";
       let cartTotal = 0;
-
-      /* If user has cart */
 
       if(user.cart){
 
         for(const productId in user.cart){
 
           const qty = user.cart[productId] || 1;
-
           const product = products[productId];
 
           if(product && product.price){
@@ -98,7 +83,7 @@ app.get("/cartReminder", async (req,res)=>{
 
       }
 
-      /* If cart empty */
+      let message = "";
 
       if(cartTotal === 0){
 
@@ -106,7 +91,7 @@ app.get("/cartReminder", async (req,res)=>{
           Math.floor(Math.random()*emptyCartTemplates.length)
         ];
 
-      }else{
+      } else {
 
         const remaining = Math.max(0, FREE_DELIVERY - cartTotal);
 
@@ -120,22 +105,19 @@ app.get("/cartReminder", async (req,res)=>{
 
       }
 
-      /* Skip if reminder sent within 2 hours */
-
-      if(user.lastCartReminder !== undefined){
+      if(user.lastCartReminder){
 
         const diff = Date.now() - user.lastCartReminder;
 
         if(diff < REMINDER_DELAY){
           skipped++;
+          logs.push(`SKIP ${uid} → reminder sent recently`);
           continue;
         }
 
       }
 
       try{
-
-        /* FCM push */
 
         await admin.messaging().send({
           token:user.fcm_token,
@@ -150,8 +132,6 @@ app.get("/cartReminder", async (req,res)=>{
           }
         });
 
-        /* Personal notification */
-
         const notifRef = db.ref(`users/${uid}/notifications`).push();
 
         await notifRef.set({
@@ -163,32 +143,40 @@ app.get("/cartReminder", async (req,res)=>{
           read:false
         });
 
-        success++;
-
         await db.ref(`users/${uid}`).update({
           lastCartReminder: Date.now()
         });
 
-      }catch(err){
+        success++;
+
+        logs.push(`SUCCESS ${uid} → notification sent`);
+
+      } catch(err){
 
         failed++;
+
+        logs.push(`FAILED ${uid} → ${err.message}`);
 
       }
 
     }
 
-    res.send(`success ${success}\nfailed ${failed}\nskipped ${skipped}`);
+    res.send(
+`success ${success}
+failed ${failed}
+skipped ${skipped}
+
+Logs:
+${logs.join("\n")}`
+    );
 
   }catch(err){
 
-    res.send(`success ${success}\nfailed ${failed}\nskipped ${skipped}`);
+    res.send(`Server error: ${err.message}`);
 
   }
 
 });
-
-
-/* Start server */
 
 const PORT = process.env.PORT || 3000;
 
