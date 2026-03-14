@@ -3,7 +3,8 @@ const admin = require("firebase-admin");
 
 const app = express();
 
-/* Load Firebase Service Account from Render ENV */
+/* Firebase Service Account from Render ENV */
+
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -33,8 +34,7 @@ const templates = [
 
 ];
 
-
-/* Home */
+/* Home route */
 
 app.get("/", (req,res)=>{
   res.send("PilakHub cart reminder server running");
@@ -62,20 +62,26 @@ app.get("/cartReminder", async (req,res)=>{
 
       const user = users[uid];
 
+      /* Skip if cart missing */
+
       if(!user.cart){
         skipped++;
         continue;
       }
+
+      /* Skip if no token */
 
       if(!user.fcm_token){
         skipped++;
         continue;
       }
 
+      /* Calculate cart total */
+
       let cartTotal = 0;
 
       Object.values(user.cart).forEach(item=>{
-        cartTotal += item.price || 0;
+        cartTotal += (item.price || 0) * (item.quantity || 1);
       });
 
       if(cartTotal <= 0){
@@ -85,11 +91,17 @@ app.get("/cartReminder", async (req,res)=>{
 
       const remaining = Math.max(0, FREE_DELIVERY - cartTotal);
 
-      const lastReminder = user.lastCartReminder || 0;
+      /* Only skip if lastCartReminder exists AND within 2 hours */
 
-      if(Date.now() - lastReminder < REMINDER_DELAY){
-        skipped++;
-        continue;
+      if(user.lastCartReminder){
+
+        const lastReminder = user.lastCartReminder;
+
+        if(Date.now() - lastReminder < REMINDER_DELAY){
+          skipped++;
+          continue;
+        }
+
       }
 
       /* Random template */
