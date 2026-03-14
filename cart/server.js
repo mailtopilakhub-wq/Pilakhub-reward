@@ -66,14 +66,12 @@ app.get("/cartReminder", async (req,res)=>{
 
       for(const productId in user.cart){
 
-        const qty = user.cart[productId] || 1;
+        const qty = user.cart[productId];
 
         const product = products[productId];
 
         if(product && product.price){
-
           cartTotal += product.price * qty;
-
         }
 
       }
@@ -97,10 +95,12 @@ app.get("/cartReminder", async (req,res)=>{
       const template = templates[Math.floor(Math.random()*templates.length)];
 
       const message = template
-        .replace("{cart}", cartTotal)
-        .replace("{remaining}", remaining);
+        .replace("{cart}",cartTotal)
+        .replace("{remaining}",remaining);
 
       try{
+
+        /* FCM PUSH */
 
         await admin.messaging().send({
           token: token,
@@ -112,6 +112,19 @@ app.get("/cartReminder", async (req,res)=>{
             type:"cart_reminder",
             screen:"cart"
           }
+        });
+
+        /* PERSONAL NOTIFICATION */
+
+        const notifRef = db.ref(`users/${uid}/notifications`).push();
+
+        await notifRef.set({
+          title:"PilakHub Cart Reminder",
+          body:message,
+          type:"cart_reminder",
+          screen:"cart",
+          timestamp: Date.now(),
+          read:false
         });
 
         success++;
