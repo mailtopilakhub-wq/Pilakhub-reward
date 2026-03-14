@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 
 const app = express();
 
+/* Firebase service account from Render ENV */
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -13,9 +14,12 @@ admin.initializeApp({
 const db = admin.database();
 
 const FREE_DELIVERY = 500;
-const REMINDER_DELAY = 2 * 60 * 60 * 1000;
+const REMINDER_DELAY = 2 * 60 * 60 * 1000; // 2 hours
 
-const templates = [
+/* Cart reminder templates */
+
+const cartTemplates = [
+
 "🛒 Items worth ₹{cart} are waiting in your cart.",
 "🚚 Add ₹{remaining} more to unlock FREE delivery.",
 "Great picks! Your cart total is ₹{cart}.",
@@ -26,11 +30,29 @@ const templates = [
 "Don't miss out! ₹{cart} items still in cart.",
 "Checkout now! Your cart total is ₹{cart}.",
 "Add ₹{remaining} more to get free delivery."
+
 ];
+
+/* Empty cart templates */
+
+const emptyCartTemplates = [
+
+"🛍️ It's time to fill your cart with awesome products we have!",
+"Discover amazing deals today. Start filling your cart now!",
+"Your next favorite product is waiting. Add items to your cart.",
+"Browse PilakHub and add something exciting to your cart!",
+"🔥 Trending products are waiting for you. Start shopping!"
+
+];
+
+/* Home route */
 
 app.get("/", (req,res)=>{
   res.send("PilakHub cart reminder server running");
 });
+
+
+/* Cron endpoint */
 
 app.get("/cartReminder", async (req,res)=>{
 
@@ -50,40 +72,55 @@ app.get("/cartReminder", async (req,res)=>{
 
       const user = users[uid];
 
-      if(!user.cart){
-        skipped++;
-        continue;
-      }
-
       if(!user.fcm_token){
         skipped++;
         continue;
       }
 
-      /* Calculate cart total */
-
+      let message = "";
       let cartTotal = 0;
 
-      for(const productId in user.cart){
+      /* If user has cart */
 
-        const qty = user.cart[productId] || 1;
+      if(user.cart){
 
-        const product = products[productId];
+        for(const productId in user.cart){
 
-        if(product && product.price){
-          cartTotal += product.price * qty;
+          const qty = user.cart[productId] || 1;
+
+          const product = products[productId];
+
+          if(product && product.price){
+            cartTotal += product.price * qty;
+          }
+
         }
 
       }
 
-      if(cartTotal <= 0){
-        skipped++;
-        continue;
+      /* If cart empty */
+
+      if(cartTotal === 0){
+
+        message = emptyCartTemplates[
+          Math.floor(Math.random()*emptyCartTemplates.length)
+        ];
+
+      }else{
+
+        const remaining = Math.max(0, FREE_DELIVERY - cartTotal);
+
+        const template = cartTemplates[
+          Math.floor(Math.random()*cartTemplates.length)
+        ];
+
+        message = template
+          .replace("{cart}",cartTotal)
+          .replace("{remaining}",remaining);
+
       }
 
-      const remaining = Math.max(0, FREE_DELIVERY - cartTotal);
-
-      /* Correct reminder logic */
+      /* Skip if reminder sent within 2 hours */
 
       if(user.lastCartReminder !== undefined){
 
@@ -96,12 +133,6 @@ app.get("/cartReminder", async (req,res)=>{
 
       }
 
-      const template = templates[Math.floor(Math.random()*templates.length)];
-
-      const message = template
-        .replace("{cart}", cartTotal)
-        .replace("{remaining}", remaining);
-
       try{
 
         /* FCM push */
@@ -109,12 +140,13 @@ app.get("/cartReminder", async (req,res)=>{
         await admin.messaging().send({
           token:user.fcm_token,
           notification:{
-            title:"PilakHub Cart Reminder",
-            message:message
+            title:"PilakHub",
+            body:message
           },
           data:{
             type:"cart_reminder",
-            screen:"cart"
+            screen:"cart",
+            message:message
           }
         });
 
@@ -123,8 +155,8 @@ app.get("/cartReminder", async (req,res)=>{
         const notifRef = db.ref(`users/${uid}/notifications`).push();
 
         await notifRef.set({
-          title:"PilakHub Cart Reminder",
-          body:message,
+          title:"PilakHub",
+          message:message,
           type:"cart_reminder",
           screen:"cart",
           timestamp: Date.now(),
@@ -154,6 +186,9 @@ app.get("/cartReminder", async (req,res)=>{
   }
 
 });
+
+
+/* Start server */
 
 const PORT = process.env.PORT || 3000;
 
